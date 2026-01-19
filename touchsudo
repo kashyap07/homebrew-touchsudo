@@ -1,0 +1,429 @@
+#!/bin/bash
+# touchsudo - Enable Touch ID for sudo on macOS
+# A simple utility to configure sudo authentication with Touch ID
+#
+# Usage:
+#   touchsudo           # Interactive mode
+#   touchsudo enable    # Enable Touch ID for sudo
+#   touchsudo disable   # Disable Touch ID for sudo
+#   touchsudo status    # Show current status
+#
+# Based on code from the Mole project
+
+set -euo pipefail
+
+VERSION="1.0.0"
+
+# 3D ASCII Banner
+show_banner() {
+    echo -e "\033[0;36m"
+    cat << 'BANNER'
+████████╗ ██████╗ ██╗   ██╗ ██████╗██╗  ██╗    ███████╗██╗   ██╗██████╗  ██████╗
+╚══██╔══╝██╔═══██╗██║   ██║██╔════╝██║  ██║    ██╔════╝██║   ██║██╔══██╗██╔═══██╗
+   ██║   ██║   ██║██║   ██║██║     ███████║    ███████╗██║   ██║██║  ██║██║   ██║
+   ██║   ██║   ██║██║   ██║██║     ██╔══██║    ╚════██║██║   ██║██║  ██║██║   ██║
+   ██║   ╚██████╔╝╚██████╔╝╚██████╗██║  ██║    ███████║╚██████╔╝██████╔╝╚██████╔╝
+   ╚═╝    ╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝    ╚══════╝ ╚═════╝ ╚═════╝  ╚═════╝
+BANNER
+    echo -e "\033[0m"
+}
+
+# Colors and icons
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+PURPLE='\033[0;35m'
+GRAY='\033[0;90m'
+NC='\033[0m' # No Color
+ICON_SUCCESS="✓"
+ICON_ERROR="✗"
+
+# Configuration
+PAM_SUDO_FILE="${TOUCHSUDO_PAM_FILE:-/etc/pam.d/sudo}"
+PAM_SUDO_LOCAL_FILE="${TOUCHSUDO_PAM_LOCAL_FILE:-/etc/pam.d/sudo_local}"
+readonly PAM_TID_LINE="auth       sufficient     pam_tid.so"
+
+# Temp file tracking for cleanup
+TEMP_FILES=()
+
+cleanup_temp_files() {
+    for f in "${TEMP_FILES[@]:-}"; do
+        [[ -f "$f" ]] && rm -f "$f" 2>/dev/null || true
+    done
+}
+
+trap cleanup_temp_files EXIT INT TERM
+
+create_temp_file() {
+    local tmp
+    tmp=$(mktemp)
+    TEMP_FILES+=("$tmp")
+    echo "$tmp"
+}
+
+log_success() {
+    echo -e "${GREEN}${ICON_SUCCESS}${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}${ICON_ERROR}${NC} $1" >&2
+}
+
+log_warning() {
+    echo -e "${YELLOW}!${NC} $1"
+}
+
+# Drain any pending input (e.g., escape sequences)
+drain_pending_input() {
+    while read -r -t 0.01 -n 1 2>/dev/null; do :; done
+}
+
+# Show help
+show_help() {
+    show_banner
+    cat << EOF
+v${VERSION} - Enable Touch ID for sudo on macOS
+
+Usage:
+    touchsudo [command]
+
+Commands:
+    enable      Enable Touch ID for sudo
+    disable     Disable Touch ID for sudo
+    status      Show current Touch ID status
+    help        Show this help message
+    version     Show version
+
+Without a command, touchsudo runs in interactive mode.
+
+Examples:
+    touchsudo enable    # Enable Touch ID
+    touchsudo status    # Check if enabled
+    touchsudo           # Interactive toggle
+
+Environment Variables:
+    TOUCHSUDO_PAM_FILE        Override PAM sudo file path
+    TOUCHSUDO_PAM_LOCAL_FILE  Override PAM sudo_local file path
+
+EOF
+}
+
+# Check if Touch ID is already configured
+is_touchid_configured() {
+    # Check sudo_local first (Sonoma+)
+    if [[ -f "$PAM_SUDO_LOCAL_FILE" ]]; then
+        grep -q "pam_tid.so" "$PAM_SUDO_LOCAL_FILE" 2>/dev/null && return 0
+    fi
+
+    # Fallback to standard sudo file
+    if [[ ! -f "$PAM_SUDO_FILE" ]]; then
+        return 1
+    fi
+    grep -q "pam_tid.so" "$PAM_SUDO_FILE" 2>/dev/null
+}
+
+# Check if system supports Touch ID
+supports_touchid() {
+    # Must be macOS
+    if [[ "$(uname)" != "Darwin" ]]; then
+        return 1
+    fi
+
+    # Check if bioutil exists and has Touch ID capability
+    if command -v bioutil &>/dev/null; then
+        bioutil -r 2>/dev/null | grep -q "Touch ID" && return 0
+    fi
+
+    # Apple Silicon Macs have Touch ID (except Mac mini/Studio/Pro)
+    local arch
+    arch=$(uname -m)
+    if [[ "$arch" == "arm64" ]]; then
+        # Check if it's a laptop (has Touch ID) vs desktop
+        local model
+        model=$(sysctl -n hw.model 2>/dev/null || echo "")
+        if [[ "$model" == *"MacBook"* ]]; then
+            return 0
+        fi
+        # Desktop Macs with Magic Keyboard may have Touch ID - let user decide
+        return 0
+    fi
+
+    # For Intel Macs, check model year (Touch ID added 2016 on MacBook Pro)
+    local model_year
+    model_year=$(system_profiler SPHardwareDataType 2>/dev/null | grep "Model Identifier" | grep -o "[0-9]\{4\}" | head -1 || echo "")
+    if [[ -n "$model_year" ]] && [[ "$model_year" -ge 2018 ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
+# Show current Touch ID status
+show_status() {
+    if is_touchid_configured; then
+        echo -e "${GREEN}${ICON_SUCCESS}${NC} Touch ID is enabled for sudo"
+        return 0
+    else
+        echo -e "${YELLOW}○${NC} Touch ID is not configured for sudo"
+        return 1
+    fi
+}
+
+# Enable Touch ID for sudo
+enable_touchid() {
+    local temp_file=""
+
+    # Check if we're on macOS
+    if [[ "$(uname)" != "Darwin" ]]; then
+        log_error "This tool only works on macOS"
+        return 1
+    fi
+
+    # Check if system supports Touch ID
+    if ! supports_touchid; then
+        log_warning "This Mac may not support Touch ID"
+        read -rp "Continue anyway? [y/N] " confirm
+        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+            echo -e "${YELLOW}Cancelled${NC}"
+            return 1
+        fi
+        echo ""
+    fi
+
+    # Check if we should use sudo_local (Sonoma+)
+    if [[ -f "$PAM_SUDO_FILE" ]] && grep -q "sudo_local" "$PAM_SUDO_FILE"; then
+        # Check if already correctly configured in sudo_local
+        if [[ -f "$PAM_SUDO_LOCAL_FILE" ]] && grep -q "pam_tid.so" "$PAM_SUDO_LOCAL_FILE"; then
+            # Clean up legacy config if present
+            if grep -q "pam_tid.so" "$PAM_SUDO_FILE"; then
+                temp_file=$(create_temp_file)
+                grep -v "pam_tid.so" "$PAM_SUDO_FILE" > "$temp_file"
+                if sudo mv "$temp_file" "$PAM_SUDO_FILE" 2>/dev/null; then
+                    echo -e "${GREEN}${ICON_SUCCESS} Cleaned up legacy configuration${NC}"
+                fi
+            fi
+            echo -e "${GREEN}${ICON_SUCCESS} Touch ID is already enabled${NC}"
+            return 0
+        fi
+
+        # Check if configured in sudo (legacy)
+        local is_legacy_configured=false
+        if grep -q "pam_tid.so" "$PAM_SUDO_FILE"; then
+            is_legacy_configured=true
+        fi
+
+        # Write to sudo_local
+        local write_success=false
+        if [[ ! -f "$PAM_SUDO_LOCAL_FILE" ]]; then
+            # Create the file
+            echo "# sudo_local: local customizations for sudo" | sudo tee "$PAM_SUDO_LOCAL_FILE" >/dev/null
+            echo "$PAM_TID_LINE" | sudo tee -a "$PAM_SUDO_LOCAL_FILE" >/dev/null
+            sudo chmod 444 "$PAM_SUDO_LOCAL_FILE"
+            sudo chown root:wheel "$PAM_SUDO_LOCAL_FILE"
+            write_success=true
+        else
+            # Append if not present
+            if ! grep -q "pam_tid.so" "$PAM_SUDO_LOCAL_FILE"; then
+                temp_file=$(create_temp_file)
+                cp "$PAM_SUDO_LOCAL_FILE" "$temp_file"
+                echo "$PAM_TID_LINE" >> "$temp_file"
+                sudo mv "$temp_file" "$PAM_SUDO_LOCAL_FILE"
+                sudo chmod 444 "$PAM_SUDO_LOCAL_FILE"
+                sudo chown root:wheel "$PAM_SUDO_LOCAL_FILE"
+                write_success=true
+            else
+                write_success=true
+            fi
+        fi
+
+        if $write_success; then
+            if $is_legacy_configured; then
+                temp_file=$(create_temp_file)
+                grep -v "pam_tid.so" "$PAM_SUDO_FILE" > "$temp_file"
+                sudo mv "$temp_file" "$PAM_SUDO_FILE"
+                log_success "Touch ID migrated to sudo_local"
+            else
+                log_success "Touch ID enabled - try: sudo echo hello"
+            fi
+            return 0
+        else
+            log_error "Failed to write to sudo_local"
+            return 1
+        fi
+    fi
+
+    # Legacy method: Modify sudo file directly
+    if is_touchid_configured; then
+        echo -e "${GREEN}${ICON_SUCCESS} Touch ID is already enabled${NC}"
+        return 0
+    fi
+
+    # Create backup only if it doesn't exist
+    if [[ ! -f "${PAM_SUDO_FILE}.touchsudo-backup" ]]; then
+        if ! sudo cp "$PAM_SUDO_FILE" "${PAM_SUDO_FILE}.touchsudo-backup" 2>/dev/null; then
+            log_error "Failed to create backup"
+            return 1
+        fi
+    fi
+
+    # Create temp file and insert pam_tid.so
+    temp_file=$(create_temp_file)
+
+    awk '
+        BEGIN { inserted = 0 }
+        /^#/ { print; next }
+        !inserted && /^[^#]/ {
+            print "'"$PAM_TID_LINE"'"
+            inserted = 1
+        }
+        { print }
+    ' "$PAM_SUDO_FILE" > "$temp_file"
+
+    # Verify content change
+    if cmp -s "$PAM_SUDO_FILE" "$temp_file"; then
+        log_error "Failed to modify configuration"
+        return 1
+    fi
+
+    # Apply the changes
+    if sudo mv "$temp_file" "$PAM_SUDO_FILE" 2>/dev/null; then
+        log_success "Touch ID enabled - try: sudo echo hello"
+        return 0
+    else
+        log_error "Failed to enable Touch ID"
+        return 1
+    fi
+}
+
+# Disable Touch ID for sudo
+disable_touchid() {
+    local temp_file=""
+
+    if ! is_touchid_configured; then
+        echo -e "${YELLOW}Touch ID is not currently enabled${NC}"
+        return 0
+    fi
+
+    # Check sudo_local first
+    if [[ -f "$PAM_SUDO_LOCAL_FILE" ]] && grep -q "pam_tid.so" "$PAM_SUDO_LOCAL_FILE"; then
+        temp_file=$(create_temp_file)
+        grep -v "pam_tid.so" "$PAM_SUDO_LOCAL_FILE" > "$temp_file"
+
+        if sudo mv "$temp_file" "$PAM_SUDO_LOCAL_FILE" 2>/dev/null; then
+            # Also clean up legacy if present
+            if grep -q "pam_tid.so" "$PAM_SUDO_FILE" 2>/dev/null; then
+                temp_file=$(create_temp_file)
+                grep -v "pam_tid.so" "$PAM_SUDO_FILE" > "$temp_file"
+                sudo mv "$temp_file" "$PAM_SUDO_FILE"
+            fi
+            log_success "Touch ID disabled"
+            return 0
+        else
+            log_error "Failed to disable Touch ID"
+            return 1
+        fi
+    fi
+
+    # Fallback to sudo file (legacy)
+    if grep -q "pam_tid.so" "$PAM_SUDO_FILE" 2>/dev/null; then
+        if [[ ! -f "${PAM_SUDO_FILE}.touchsudo-backup" ]]; then
+            if ! sudo cp "$PAM_SUDO_FILE" "${PAM_SUDO_FILE}.touchsudo-backup" 2>/dev/null; then
+                log_error "Failed to create backup"
+                return 1
+            fi
+        fi
+
+        temp_file=$(create_temp_file)
+        grep -v "pam_tid.so" "$PAM_SUDO_FILE" > "$temp_file"
+
+        if sudo mv "$temp_file" "$PAM_SUDO_FILE" 2>/dev/null; then
+            log_success "Touch ID disabled"
+            return 0
+        else
+            log_error "Failed to disable Touch ID"
+            return 1
+        fi
+    fi
+
+    log_error "Could not find Touch ID configuration to disable"
+    return 1
+}
+
+# Interactive menu
+show_menu() {
+    show_banner
+    show_status
+    echo ""
+
+    if is_touchid_configured; then
+        echo -ne "${PURPLE}→${NC} Press ${GREEN}Enter${NC} to disable, ${GRAY}q${NC} to quit: "
+        IFS= read -r -s -n1 key || key=""
+        drain_pending_input
+        echo ""
+
+        case "$key" in
+            $'\e'|q|Q)
+                return 0
+                ;;
+            ""|$'\n'|$'\r')
+                printf "\r\033[K"
+                disable_touchid
+                ;;
+            *)
+                log_error "Invalid key"
+                ;;
+        esac
+    else
+        echo -ne "${PURPLE}→${NC} Press ${GREEN}Enter${NC} to enable, ${GRAY}q${NC} to quit: "
+        IFS= read -r -s -n1 key || key=""
+        drain_pending_input
+
+        case "$key" in
+            $'\e'|q|Q)
+                echo ""
+                return 0
+                ;;
+            ""|$'\n'|$'\r')
+                printf "\r\033[K"
+                enable_touchid
+                ;;
+            *)
+                echo ""
+                log_error "Invalid key"
+                ;;
+        esac
+    fi
+}
+
+# Main
+main() {
+    local command="${1:-}"
+
+    case "$command" in
+        enable)
+            enable_touchid
+            ;;
+        disable)
+            disable_touchid
+            ;;
+        status)
+            show_status
+            ;;
+        help|--help|-h)
+            show_help
+            ;;
+        version|--version|-v)
+            echo "touchsudo v${VERSION}"
+            ;;
+        "")
+            show_menu
+            ;;
+        *)
+            log_error "Unknown command: $command"
+            echo "Run 'touchsudo help' for usage"
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

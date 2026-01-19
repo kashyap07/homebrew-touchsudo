@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 
 # 3D ASCII Banner
 show_banner() {
@@ -352,14 +352,11 @@ disable_touchid() {
 # Interactive menu
 show_menu() {
     show_banner
-    show_status
+    show_status || true
     echo ""
 
     if is_touchid_configured; then
-        echo -e "  ${GRAY}[1]${NC} Disable Touch ID for sudo"
-        echo -e "  ${GRAY}[q]${NC} Quit"
-        echo ""
-        echo -ne "${PURPLE}→${NC} Select option: "
+        echo -ne "${PURPLE}→${NC} Press ${GREEN}Enter${NC} to disable, ${GRAY}q${NC} to quit: "
         IFS= read -r -s -n1 key || key=""
         drain_pending_input
         echo ""
@@ -368,8 +365,7 @@ show_menu() {
             $'\e'|q|Q)
                 return 0
                 ;;
-            1|""|$'\n'|$'\r')
-                echo ""
+            ""|$'\n'|$'\r')
                 disable_touchid
                 ;;
             *)
@@ -377,10 +373,7 @@ show_menu() {
                 ;;
         esac
     else
-        echo -e "  ${GRAY}[1]${NC} Enable Touch ID for sudo"
-        echo -e "  ${GRAY}[q]${NC} Quit"
-        echo ""
-        echo -ne "${PURPLE}→${NC} Select option: "
+        echo -ne "${PURPLE}→${NC} Press ${GREEN}Enter${NC} to enable, ${GRAY}q${NC} to quit: "
         IFS= read -r -s -n1 key || key=""
         drain_pending_input
 
@@ -389,8 +382,7 @@ show_menu() {
                 echo ""
                 return 0
                 ;;
-            1|""|$'\n'|$'\r')
-                echo ""
+            ""|$'\n'|$'\r')
                 enable_touchid
                 ;;
             *)

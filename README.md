@@ -14,7 +14,7 @@ inspite of having Touch ID?
 Behold, touchsudo.  
 A simple script that enables Touch ID control of sudo.
 
-Full code credits to [tw93/Mole](https://github.com/tw93/Mole).
+Credits to [tw93/Mole](https://github.com/tw93/Mole) for the core functionality. 
 
 <img src="touchsudo.png" alt="touchsudo" width="400">
 

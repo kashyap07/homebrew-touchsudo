@@ -1,8 +1,14 @@
-<p align="center">
-  <img src="touchsudo.png" alt="touchsudo" width="600">
-</p>
+```
+████████╗ ██████╗ ██╗   ██╗ ██████╗██╗  ██╗    ███████╗██╗   ██╗██████╗  ██████╗
+╚══██╔══╝██╔═══██╗██║   ██║██╔════╝██║  ██║    ██╔════╝██║   ██║██╔══██╗██╔═══██╗
+   ██║   ██║   ██║██║   ██║██║     ███████║    ███████╗██║   ██║██║  ██║██║   ██║
+   ██║   ██║   ██║██║   ██║██║     ██╔══██║    ╚════██║██║   ██║██║  ██║██║   ██║
+   ██║   ╚██████╔╝╚██████╔╝╚██████╗██║  ██║    ███████║╚██████╔╝██████╔╝╚██████╔╝
+   ╚═╝    ╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝    ╚══════╝ ╚═════╝ ╚═════╝  ╚═════╝
+```
 
-<p align="center">
+<p align="left">
+  <img src="touchsudo.png" alt="touchsudo" width="200">
   <b>Use Touch ID for sudo instead of typing your password</b>
 </p>
 
@@ -48,9 +54,9 @@ touchsudo configures macOS PAM (Pluggable Authentication Module) to accept Touch
 
 ## Compatibility
 
-| macOS Version | Method |
-|---------------|--------|
-| Sonoma (14+)  | Uses `/etc/pam.d/sudo_local` (survives updates) |
+| macOS Version | Method                                                          |
+| ------------- | --------------------------------------------------------------- |
+| Sonoma (14+)  | Uses `/etc/pam.d/sudo_local` (survives updates)                 |
 | Older         | Modifies `/etc/pam.d/sudo` (may need re-enabling after updates) |
 
 ## Requirements

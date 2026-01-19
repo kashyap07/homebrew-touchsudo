@@ -9,8 +9,10 @@
 
 > Use Touch ID for sudo.
 
-Have you ever been frustrated by having to type in your password every time on your mac inspite of having Touch ID?
-Behold, touchsudo. A simple script that enables Touch ID control of sudo.
+Have you ever been frustrated by having to type in your password on your mac every single time  
+inspite of having Touch ID?  
+Behold, touchsudo.  
+A simple script that enables Touch ID control of sudo.
 
 Full code credits to [tw93/Mole](https://github.com/tw93/Mole).
 

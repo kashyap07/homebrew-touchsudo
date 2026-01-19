@@ -356,7 +356,10 @@ show_menu() {
     echo ""
 
     if is_touchid_configured; then
-        echo -ne "${PURPLE}→${NC} Press ${GREEN}Enter${NC} to disable, ${GRAY}q${NC} to quit: "
+        echo -e "  ${GRAY}[1]${NC} Disable Touch ID for sudo"
+        echo -e "  ${GRAY}[q]${NC} Quit"
+        echo ""
+        echo -ne "${PURPLE}→${NC} Select option: "
         IFS= read -r -s -n1 key || key=""
         drain_pending_input
         echo ""
@@ -365,16 +368,19 @@ show_menu() {
             $'\e'|q|Q)
                 return 0
                 ;;
-            ""|$'\n'|$'\r')
-                printf "\r\033[K"
+            1|""|$'\n'|$'\r')
+                echo ""
                 disable_touchid
                 ;;
             *)
-                log_error "Invalid key"
+                log_error "Invalid option"
                 ;;
         esac
     else
-        echo -ne "${PURPLE}→${NC} Press ${GREEN}Enter${NC} to enable, ${GRAY}q${NC} to quit: "
+        echo -e "  ${GRAY}[1]${NC} Enable Touch ID for sudo"
+        echo -e "  ${GRAY}[q]${NC} Quit"
+        echo ""
+        echo -ne "${PURPLE}→${NC} Select option: "
         IFS= read -r -s -n1 key || key=""
         drain_pending_input
 
@@ -383,13 +389,13 @@ show_menu() {
                 echo ""
                 return 0
                 ;;
-            ""|$'\n'|$'\r')
-                printf "\r\033[K"
+            1|""|$'\n'|$'\r')
+                echo ""
                 enable_touchid
                 ;;
             *)
                 echo ""
-                log_error "Invalid key"
+                log_error "Invalid option"
                 ;;
         esac
     fi

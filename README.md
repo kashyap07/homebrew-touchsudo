@@ -7,10 +7,8 @@
    ╚═╝    ╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝    ╚══════╝ ╚═════╝ ╚═════╝  ╚═════╝
 ```
 
-<p align="left">
-  <img src="touchsudo.png" alt="touchsudo" width="200">
-  <b>Use Touch ID for sudo instead of typing your password</b>
-</p>
+<img src="touchsudo.png" alt="touchsudo" width="400">
+<b>Use Touch ID for sudo instead of typing in your password.</b>
 
 ## Installation
 
